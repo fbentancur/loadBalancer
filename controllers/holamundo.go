@@ -48,16 +48,18 @@ func selectServer(serversNoDisponibles []int, e echo.Context) (http.Response, er
 	puertoCorrespondiente := servers[0].puerto
 	indexMenorTrafico := 0
 
+	if len(servers) == len(serversNoDisponibles) {
+		err := fmt.Errorf("no hay servers disponibles")
+		var response http.Response
+		return response, err
+	}
+
 	for i := 1; i < len(servers); i++ {
 		mutex.Lock()
-		if len(servers) == len(serversNoDisponibles) {
-			err := fmt.Errorf("no hay servers disponibles")
-			var response http.Response
-			fmt.Printf("Aca retorna 1")
-			return response, err
-		} else if contiene(servers[i].puerto, serversNoDisponibles) {
+		if contiene(servers[i].puerto, serversNoDisponibles) {
 			continue
-		} else if servers[i].trafico < menorTrafico {
+		}
+		if servers[i].trafico < menorTrafico {
 			menorTrafico = servers[i].trafico
 			puertoCorrespondiente = servers[i].puerto
 			indexMenorTrafico = i
@@ -67,13 +69,10 @@ func selectServer(serversNoDisponibles []int, e echo.Context) (http.Response, er
 	mutex.Lock()
 	servers[indexMenorTrafico].trafico += 1
 	mutex.Unlock()
-	defer func() {
-		mutex.Lock()
-		servers[indexMenorTrafico].trafico -= 1
-		mutex.Unlock()
-	}()
-	fmt.Println(puertoCorrespondiente, "este es el puerto seleccionado")
 	res, err := redirigirRequest(puertoCorrespondiente, e, serversNoDisponibles)
+	mutex.Lock()
+	servers[indexMenorTrafico].trafico -= 1
+	mutex.Unlock()
 	return *res, err
 }
 
@@ -83,7 +82,6 @@ func redirigirRequest(port int, e echo.Context, serversNoDisponibles []int) (*ht
 	method := e.Request().Method
 	bodyStream := e.Request().Body
 	headers := e.Request().Header
-	fmt.Println(path)
 
 	requestURL := fmt.Sprintf("http://localhost:%s/%s", strconv.Itoa(port), path)
 	req, err := http.NewRequest(method, requestURL, bodyStream)
@@ -101,9 +99,6 @@ func redirigirRequest(port int, e echo.Context, serversNoDisponibles []int) (*ht
 		fmt.Printf("client: error making http request: %s\n", err)
 	}
 	*res, err = manejarRespuesta(port, *res, e, err, serversNoDisponibles)
-	if err != nil {
-		fmt.Println("la concha de tu vieja")
-	}
 
 	return res, err
 }
@@ -113,13 +108,9 @@ func manejarRespuesta(port int, res http.Response, e echo.Context, err error, se
 		serversNoDisponibles = append(serversNoDisponibles, port)
 		newRes, err := selectServer(serversNoDisponibles, e)
 		if err != nil {
-			fmt.Printf("Aca retorna 3")
 			return newRes, err
 		}
 		res = newRes
-	}
-	for _, server := range serversNoDisponibles {
-		fmt.Println(server, "este es un server no disponible")
 	}
 
 	fmt.Printf("client: got response!\n")
